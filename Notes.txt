@@ -1,0 +1,185 @@
+
+----------------------------------------------------------
+To Do List:
+----------------------------------------------------------
+
+ Check in ReadConfig that all primes are equal.
+
+ Automate calling of DISTRIBUTE, maybe add to CheckLivePeers or new thread.
+
+ MPC share addition and LI
+
+
+---------------------------------------------------------------
+Commands to demo P2P
+---------------------------------------------------------------
+Console #1> ./netPeer -c Bob.config
+
+Console #2> ./netPeer -c Alice.config
+
+Console #3> ./netPeer -c Carl.config
+
+Console #4> ./netPeer -c Dave.config
+
+Console #5> telnet 127.0.0.1 7777
+DISTRIBUTE:
+
+Console #5> telnet 127.0.0.1 7771
+DISTRIBUTE:
+
+Console #5> telnet 127.0.0.1 7772
+DISTRIBUTE:
+
+Console #5> telnet 127.0.0.1 7773
+DISTRIBUTE:
+
+Console #5> telnet 127.0.0.1 7771
+LI:Bob_Share
+
+Console #5> telnet 127.0.0.1 7771
+LI:Carl_Share
+
+Console #5> telnet 127.0.0.1 7771
+LI:Dave_Share
+
+Console #5> telnet 127.0.0.1 7772
+LI:Alice_Share
+
+
+Console #5> telnet 127.0.0.1 7777
+LISTSHARES:
+
+Console #5> telnet 127.0.0.1 7771
+LISTSHARES:
+
+Console #5> telnet 127.0.0.1 7772
+LISTSHARES:
+
+Console #5> telnet 127.0.0.1 7773
+LISTSHARES:
+
+-- Responses with --
+Bob x=1 c=[2 1 1], Alice x=2 c=[3 1 1], Carl x=3 c=[4 1 1], Dave x=4 c=[5 1 1]
+
+REPLY:Bob NUMSHARES=4
+SHARE1=[Alice_Share x=2 f_x=9 1 5 3 15 4 23]    LI = 3 1 1
+SHARE2=[Bob_Share x=1 f_x=4]
+SHARE3=[Carl_Share x=3 f_x=16 1 6 2 10 4 24]    LI = 4 1 1
+SHARE4=[Dave_Share x=4 f_x=25 1 7 2 11 3 17]    LI = 5 1 1
+
+REPLY:Alice NUMSHARES=4
+SHARE1=[Alice_Share x=2 f_x=9]
+SHARE2=[Bob_Share x=1 f_x=4 2 8 3 14 4 22]      LI = 2 1 1
+SHARE3=[Carl_Share x=3 f_x=16 1 6 2 10 4 24]
+SHARE4=[Dave_Share x=4 f_x=25 1 7 2 11 3 17]
+
+REPLY:Carl NUMSHARES=4
+SHARE1=[Alice_Share x=2 f_x=9 1 5 3 15 4 23]
+SHARE2=[Bob_Share x=1 f_x=4 2 8 3 14 4 22]
+SHARE3=[Carl_Share x=3 f_x=16]
+SHARE4=[Dave_Share x=4 f_x=25 1 7 2 11 3 17]
+
+REPLY:Dave NUMSHARES=4
+SHARE1=[Alice_Share x=2 f_x=9 1 5 3 15 4 23]
+SHARE2=[Bob_Share x=1 f_x=4 2 8 3 14 4 22]
+SHARE3=[Carl_Share x=3 f_x=16 1 6 2 10 4 24]
+SHARE4=[Dave_Share x=4 f_x=25]
+
+----------------------------------------------------------
+Bugs:
+----------------------------------------------------------
+
+3) ---------------------------------------------------------
+Sometimes on statup, the listener socket/loop seems to timeout immediately:
+
+[139862032500480] Peer::MainLoop  Listening for connections...
+[139862032500480] Peer::MainLoop  Listening for connections...
+[139862032500480] Peer::MainLoop  Listening for connections...
+[139862032500480] Peer::MainLoop  Listening for connections...
+[139862032500480] Peer::MainLoop  Listening for connections...
+
+>>> Added check of setsockopt() call to set SO_RCVTIMEO in Peer::MainLoop
+
+
+2) Fixed ---------------------------------------------------
+[139780141127424] Peer::HandlePeer() Received: PING:
+[139780141127424] ERROR: Peer::HandlePeer() Failed to find msgType PING in Handlers map.
+
+>>> Added PING in Handlers map, send REPLY with ID.
+
+
+1) Fixed ---------------------------------------------------
+The intial host run without BuildPeers (-b) has a problem with
+CheckLivePeers where the connection times out and the process exits:
+
+[140532335736576] Peer::CheckLivePeers checking localhost:7574
+[140532335736576] PeerConnection::PeerConnection GetSocket() port 7574
+....
+ERROR: PeerConnection::PeerConnection() connect failed host localhost port 7574 client_sock 0 Connection timed out
+
+Added -s to set CheckLivePeers time interval, and tested with:
+./netPeer -b -h 192.168.0.12 -p 7777 -i 192.168.0.12:7777 -t 600 -s 5
+./netPeer    -h 192.168.0.12 -p 7755 -i 192.168.0.12:7777 -t 600 -s 30
+./netPeer    -h 192.168.0.12 -p 7733 -i 192.168.0.12:7777 -t 600 -s 30
+-- Ran fine until 7733 was closed by EXIT: then:
+
+[140284551530240] PeerConnection::PeerConnection GetSocket() port 7733
+ERROR: PeerConnection::PeerConnection() connect failed host 192.168.0.12 port 7733 client_sock 0 Connection refused
+
+The problem is earlier, there initial connections from the peers failing:
+ERROR: PeerConnection::Connect() connect failed host 192.168.0.12 port 42414 sock 5 Transport endpoint is already connected
+-- and if add error/status to PeerConnection::Connect preventing send, then the initial PEERNAME handshake fails...
+
+>>> Added socket_status flag in PeerConnection, change PeerConnection::Connect
+to return 0 on success, otherwise -1 or errno.  In PeerConnection::Connect
+check for EISCONN socket errno, and don't fail (return 0 instead).
+
+>>> In PeerConnection::SendData, add check for socket_status before send().
+
+
+---------------------------------------------------------------
+telnet commands to exercise a netPeer 
+---------------------------------------------------------------
+
+telnet 127.0.0.1 7777
+
+COMMANDS:
+
+INSERTPEER: 127.0.0.1:7771 127.0.0.1 7771
+INSERTPEER: 127.0.0.1:7772 127.0.0.1 7772
+INSERTPEER: 127.0.0.1:7773 127.0.0.1 7773
+
+LISTPEERS:
+
+PEERNAME:
+
+REMOVE:127.0.0.1:7771
+REMOVE:127.0.0.1:7772
+
+LISTPEERS:
+
+QUERY: 127.0.0.1:7777 ShareID_1 3
+
+
+---------------------------------------------------------------
+ Development Notes
+---------------------------------------------------------------
+This code and classes are ported from the Python files and article here:
+http://cs.berry.edu/~nhamid/p2p/
+http://cs.berry.edu/~nhamid/p2p/framework-python.html
+
+The Python filergui.py entry point is:
+  app = BTGui( firstpeer=peerid, maxpeers=maxpeers, serverport=serverport )
+  app.mainloop()
+
+Where BTGui:
+  self.btpeer = FilerPeer( maxpeers, serverport ) ### our MPC_Peer() class
+  host,port = firstpeer.split(':')
+  self.btpeer.buildpeers( host, int(port), hops=hops )
+  self.updatePeerList()
+
+  t = threading.Thread( target = self.btpeer.mainloop, args = [] )
+  t.start()
+
+  self.btpeer.startstabilizer( self.btpeer.checklivepeers, 3 )
+  self.after( 3000, self.onTimer )
